@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escape del ruido — Navegación GPS</title>
+<style>
+  :root{
+    --bg:#080B14;
+    --bg-panel:#0F1524;
+    --grid:rgba(94,234,212,0.05);
+    --cyan:#5EEAD4;
+    --gold:#F5C36B;
+    --violet:#9A8FC2;
+    --violet-strong:#7C6FB5;
+    --text:#EDF2F7;
+    --text-dim:#8593B3;
+    --danger:#F87171;
+    --success:#34D399;
+    --font-mono:'JetBrains Mono','Fira Code',SFMono-Regular,Consolas,monospace;
+    --font-sans:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  .er-app{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-sans);
+    border-radius:16px;
+    padding:20px;
+    max-width:1040px;
+    margin:0 auto;
+  }
+  .er-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:14px;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .er-title{
+    font-family:var(--font-mono);
+    font-size:15px;
+    letter-spacing:2px;
+    text-transform:uppercase;
+    color:var(--gold);
+  }
+  .er-sub{
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--text-dim);
+  }
+  .er-layout{
+    display:grid;
+    grid-template-columns:1fr 250px;
+    gap:16px;
+  }
+  @media (max-width:680px){ .er-layout{grid-template-columns:1fr;} }
+  .er-canvas-wrap{
+    position:relative;
+    background:#05070D;
+    border:1px solid rgba(154,143,194,0.2);
+    border-radius:12px;
+    overflow:hidden;
+  }
+  canvas{ display:block; width:100%; height:auto; }
+  .er-sidebar{ display:flex; flex-direction:column; gap:10px; }
+  .er-panel{
+    background:var(--bg-panel);
+    border:1px solid rgba(154,143,194,0.15);
+    border-radius:12px;
+    padding:12px 14px;
+  }
+  .er-panel-label{
+    font-family:var(--font-mono);
+    font-size:10px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    margin:0 0 8px;
+  }
+  .er-bar{ height:7px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden; }
+  .er-bar-fill{ height:100%; width:100%; background:var(--success); transition:width 0.1s linear, background 0.3s; }
+  .er-distlist{ list-style:none; margin:0; padding:0; font-family:var(--font-mono); font-size:12.5px; }
+  .er-distlist li{ display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.06); }
+  .er-distlist li:last-child{ border-bottom:none; }
+  .er-quality{ font-family:var(--font-mono); font-size:13px; font-weight:700; }
+  .q-alta{ color:var(--success); }
+  .q-media{ color:var(--gold); }
+  .q-baja{ color:var(--danger); }
+  .er-narrative{ font-size:13px; line-height:1.55; color:var(--text-dim); min-height:52px; }
+  .er-btn{
+    font-family:var(--font-mono);
+    background:transparent;
+    border:1px solid rgba(245,195,107,0.4);
+    color:var(--gold);
+    padding:10px 16px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    width:100%;
+  }
+  .er-btn:hover{ background:rgba(245,195,107,0.1); }
+  .er-btn:active{ transform:scale(0.98); }
+  .er-btn.secondary{ border-color:rgba(154,143,194,0.4); color:var(--violet); }
+  .er-overlay{
+    position:absolute; inset:0;
+    background:rgba(5,7,13,0.94);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    text-align:center; padding:26px; gap:12px;
+  }
+  .er-overlay h2{
+    font-family:var(--font-mono); letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--gold); font-size:18px; margin:0;
+  }
+  .er-overlay p{ font-size:13.5px; line-height:1.6; color:var(--text-dim); max-width:440px; margin:0; }
+  .er-choices{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .er-choices .er-btn{ width:auto; padding:9px 18px; }
+  .er-result-grade{ font-family:var(--font-mono); font-size:42px; font-weight:700; color:var(--gold); line-height:1; }
+  .er-dpad{
+    position:absolute; bottom:12px; left:12px;
+    display:none;
+    grid-template-columns:44px 44px 44px;
+    grid-template-rows:44px 44px 44px;
+    gap:4px;
+    opacity:0.85;
+  }
+  .er-dpad button{
+    font-family:var(--font-mono);
+    background:rgba(15,21,36,0.8);
+    border:1px solid rgba(154,143,194,0.35);
+    color:var(--text);
+    border-radius:8px;
+    font-size:16px;
+  }
+  @media (pointer:coarse){ .er-dpad{ display:grid; } }
+  .sr-only{ position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+</style>
+</head>
+<body>
+<div class="er-app">
+  <h2 class="sr-only">Juego de navegación GPS: guía a un rover a través de un mapa cubierto de niebla hasta un punto de escape, usando únicamente una posición estimada por trilateración que se vuelve poco confiable cerca de zonas de interferencia.</h2>
+  <div class="er-header">
+    <span class="er-title">Escape del ruido</span>
+    <span class="er-sub">navegación por trilateración</span>
+  </div>
+  <div class="er-layout">
+    <div class="er-canvas-wrap">
+      <canvas id="er-canvas" width="1000" height="650"></canvas>
+      <div class="er-overlay" id="er-overlay"></div>
+      <div class="er-dpad" id="er-dpad">
+        <span></span><button data-k="up">▲</button><span></span>
+        <button data-k="left">◀</button><span></span><button data-k="right">▶</button>
+        <span></span><button data-k="down">▼</button><span></span>
+      </div>
+    </div>
+    <div class="er-sidebar">
+      <div class="er-panel">
+        <p class="er-panel-label">Batería de señal</p>
+        <div class="er-bar"><div class="er-bar-fill" id="er-batfill"></div></div>
+      </div>
+      <div class="er-panel">
+        <p class="er-panel-label">Distancias medidas</p>
+        <ul class="er-distlist" id="er-distlist"></ul>
+      </div>
+      <div class="er-panel">
+        <p class="er-panel-label">Confiabilidad de la estimación</p>
+        <span class="er-quality" id="er-quality">—</span>
+      </div>
+      <div class="er-panel">
+        <p class="er-panel-label">Bitácora</p>
+        <p class="er-narrative" id="er-narrative">Pulsa iniciar para comenzar.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var W=1000,H=650;
+  var canvas=document.getElementById('er-canvas');
+  var ctx=canvas.getContext('2d');
+  var overlay=document.getElementById('er-overlay');
+  var batFill=document.getElementById('er-batfill');
+  var distList=document.getElementById('er-distlist');
+  var qualityEl=document.getElementById('er-quality');
+  var narrativeEl=document.getElementById('er-narrative');
+  var dpad=document.getElementById('er-dpad');
+
+  var sats=[{x:80,y:80},{x:920,y:80},{x:500,y:640}];
+  var startPos={x:120,y:580};
+  var goalPos={x:880,y:580};
+  var goalRadius=32;
+
+  var diffPresets={
+    normal:{stormCount:3,stormStrength:9,stormSpeed:26,battery:52,lightRadius:165},
+    dificil:{stormCount:5,stormStrength:12,stormSpeed:40,battery:40,lightRadius:140}
+  };
+
+  var st={
+    phase:'start', diff:'normal',
+    player:{x:startPos.x,y:startPos.y}, keys:{}, storms:[],
+    battery:0, batteryMax:0, lastT:0, totalNoiseSmoothed:0,
+    estimate:{x:startPos.x,y:startPos.y}
+  };
+
+  function showOverlay(html){ overlay.style.display='flex'; overlay.innerHTML=html; }
+  function hideOverlay(){ overlay.style.display='none'; overlay.innerHTML=''; }
+
+  function showStart(){
+    st.phase='start';
+    narrativeEl.textContent='Pulsa iniciar para comenzar.';
+    showOverlay(
+      '<h2>Escape del ruido</h2>'+
+      '<p>Tu rover quedó a oscuras en una zona con tormentas de interferencia. No puedes ver el terreno directamente, solo la posición que tu GPS estima a partir de tres satélites. Guíate por esa estimación hasta el punto de extracción, evitando las tormentas: cerca de ellas, la señal se distorsiona y la estimación deja de coincidir con tu posición real.</p>'+
+      '<p style="color:var(--text-dim); font-size:12.5px;">Muévete con las flechas o WASD.</p>'+
+      '<div class="er-choices">'+
+        '<button class="er-btn" id="er-start-normal">Modo normal</button>'+
+        '<button class="er-btn secondary" id="er-start-dificil">Modo difícil</button>'+
+      '</div>'
+    );
+    document.getElementById('er-start-normal').addEventListener('click', function(){ beginRun('normal'); });
+    document.getElementById('er-start-dificil').addEventListener('click', function(){ beginRun('dificil'); });
+  }
+
+  function makeStorms(cfg){
+    var arr=[];
+    for(var i=0;i<cfg.stormCount;i++){
+      var r=70+Math.random()*45;
+      arr.push({
+        x:260+Math.random()*480,
+        y:220+Math.random()*280,
+        r:r,
+        strength:cfg.stormStrength,
+        vx:(Math.random()*2-1)*cfg.stormSpeed/60,
+        vy:(Math.random()*2-1)*cfg.stormSpeed/60,
+        seed:Math.random()*10
+      });
+    }
+    return arr;
+  }
+
+  function beginRun(diff){
+    st.diff=diff;
+    var cfg=diffPresets[diff];
+    st.storms=makeStorms(cfg);
+    st.player={x:startPos.x,y:startPos.y};
+    st.estimate={x:startPos.x,y:startPos.y};
+    st.battery=cfg.battery; st.batteryMax=cfg.battery;
+    st.lightRadius=cfg.lightRadius;
+    st.lastT=performance.now();
+    st.phase='playing';
+    hideOverlay();
+    narrativeEl.textContent='Señal estable. Dirígete hacia la baliza de extracción.';
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('keydown', function(e){
+    var k=e.key.toLowerCase();
+    if(['arrowup','w'].indexOf(k)>=0) st.keys.up=true;
+    if(['arrowdown','s'].indexOf(k)>=0) st.keys.down=true;
+    if(['arrowleft','a'].indexOf(k)>=0) st.keys.left=true;
+    if(['arrowright','d'].indexOf(k)>=0) st.keys.right=true;
+  });
+  window.addEventListener('keyup', function(e){
+    var k=e.key.toLowerCase();
+    if(['arrowup','w'].indexOf(k)>=0) st.keys.up=false;
+    if(['arrowdown','s'].indexOf(k)>=0) st.keys.down=false;
+    if(['arrowleft','a'].indexOf(k)>=0) st.keys.left=false;
+    if(['arrowright','d'].indexOf(k)>=0) st.keys.right=false;
+  });
+  dpad.querySelectorAll('button').forEach(function(b){
+    var k=b.getAttribute('data-k');
+    b.addEventListener('pointerdown', function(){ st.keys[k]=true; });
+    b.addEventListener('pointerup', function(){ st.keys[k]=false; });
+    b.addEventListener('pointerleave', function(){ st.keys[k]=false; });
+  });
+
+  function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+
+  function pointSegDist(px,py,ax,ay,bx,by){
+    var dx=bx-ax, dy=by-ay;
+    var len2=dx*dx+dy*dy;
+    var t=len2>0 ? ((px-ax)*dx+(py-ay)*dy)/len2 : 0;
+    t=Math.max(0,Math.min(1,t));
+    var cx=ax+t*dx, cy=ay+t*dy;
+    return Math.hypot(px-cx,py-cy);
+  }
+
+  function computeNoise(satPos, playerPos, storms, time, seed){
+    var total=0;
+    for(var i=0;i<storms.length;i++){
+      var s=storms[i];
+      var dIn=dist(playerPos,s);
+      if(dIn<s.r){
+        total += (1-dIn/s.r)*s.strength;
+      }
+      var segD=pointSegDist(s.x,s.y,satPos.x,satPos.y,playerPos.x,playerPos.y);
+      if(segD<s.r){
+        total += (1-segD/s.r)*s.strength*0.5;
+      }
+    }
+    total=Math.min(total,26);
+    var jitter=Math.sin(time*1.4+seed)*total*0.35;
+    return total+jitter;
+  }
+
+  function solveEstimate(measured){
+    var S1=sats[0],S2=sats[1],S3=sats[2];
+    var m00=2*(S2.x-S1.x), m01=2*(S2.y-S1.y);
+    var m10=2*(S3.x-S1.x), m11=2*(S3.y-S1.y);
+    var k0=(S2.x*S2.x+S2.y*S2.y - S1.x*S1.x-S1.y*S1.y) - (measured[1]*measured[1]-measured[0]*measured[0]);
+    var k1=(S3.x*S3.x+S3.y*S3.y - S1.x*S1.x-S1.y*S1.y) - (measured[2]*measured[2]-measured[0]*measured[0]);
+    var det=m00*m11-m01*m10;
+    if(Math.abs(det)<1e-6) return {x:st.estimate.x,y:st.estimate.y};
+    var x=(k0*m11-m01*k1)/det;
+    var y=(m00*k1-m10*k0)/det;
+    return {x:x,y:y};
+  }
+
+  function updateHUD(measured, noises, quality){
+    distList.innerHTML='';
+    for(var i=0;i<sats.length;i++){
+      var li=document.createElement('li');
+      var noisy=noises[i]>3;
+      li.innerHTML='<span>S'+(i+1)+'</span><span style="color:'+(noisy?'var(--gold)':'var(--text)')+'">'+measured[i].toFixed(1)+' u</span>';
+      distList.appendChild(li);
+    }
+    qualityEl.textContent=quality.label;
+    qualityEl.className='er-quality '+quality.cls;
+  }
+
+  function frame(t){
+    if(st.phase!=='playing'){ return; }
+    var dt=Math.min(0.05,(t-st.lastT)/1000);
+    st.lastT=t;
+
+    var speed=230;
+    var dx=0,dy=0;
+    if(st.keys.up) dy-=1;
+    if(st.keys.down) dy+=1;
+    if(st.keys.left) dx-=1;
+    if(st.keys.right) dx+=1;
+    if(dx!==0||dy!==0){
+      var len=Math.hypot(dx,dy);
+      st.player.x+=dx/len*speed*dt;
+      st.player.y+=dy/len*speed*dt;
+    }
+    st.player.x=Math.max(20,Math.min(W-20,st.player.x));
+    st.player.y=Math.max(20,Math.min(H-20,st.player.y));
+
+    st.storms.forEach(function(s){
+      s.x+=s.vx*60*dt; s.y+=s.vy*60*dt;
+      if(s.x<s.r+150||s.x>W-s.r-150) s.vx*=-1;
+      if(s.y<s.r+150||s.y>H-s.r-150) s.vy*=-1;
+      s.x=Math.max(s.r+150,Math.min(W-s.r-150,s.x));
+      s.y=Math.max(s.r+150,Math.min(H-s.r-150,s.y));
+    });
+
+    var noises=[], measured=[];
+    var maxNoise=0;
+    for(var i=0;i<sats.length;i++){
+      var n=computeNoise(sats[i], st.player, st.storms, t/1000, i*3.1);
+      noises.push(n);
+      maxNoise=Math.max(maxNoise,Math.abs(n));
+      var trueD=dist(sats[i], st.player);
+      measured.push(trueD+n);
+    }
+    st.totalNoiseSmoothed=st.totalNoiseSmoothed*0.9+maxNoise*0.1;
+
+    var est=solveEstimate(measured);
+    st.estimate.x=st.estimate.x*0.8+est.x*0.2;
+    st.estimate.y=st.estimate.y*0.8+est.y*0.2;
+    st.estimate.x=Math.max(0,Math.min(W,st.estimate.x));
+    st.estimate.y=Math.max(0,Math.min(H,st.estimate.y));
+
+    var quality = st.totalNoiseSmoothed<4 ? {label:'ALTA',cls:'q-alta'} :
+                  st.totalNoiseSmoothed<11 ? {label:'MEDIA',cls:'q-media'} :
+                  {label:'BAJA',cls:'q-baja'};
+
+    var insideStorm=st.storms.some(function(s){ return dist(st.player,s)<s.r; });
+    var drain = insideStorm ? 2.4 : 1.0;
+    st.battery-=drain*dt;
+    batFill.style.width=Math.max(0,st.battery/st.batteryMax*100)+'%';
+    batFill.style.background = st.battery/st.batteryMax>0.5?'#34D399':(st.battery/st.batteryMax>0.2?'#F5C36B':'#F87171');
+
+    updateHUD(measured, noises, quality);
+
+    if(insideStorm && Math.random()<0.01){
+      narrativeEl.textContent='Interferencia severa. La estimación ya no coincide con el entorno real.';
+    } else if(quality.label==='ALTA' && Math.random()<0.01){
+      narrativeEl.textContent='Señal limpia: la posición estimada es confiable aquí.';
+    }
+
+    draw(quality);
+
+    if(dist(st.player,goalPos)<goalRadius){
+      endRun(true);
+      return;
+    }
+    if(st.battery<=0){
+      endRun(false);
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function draw(quality){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#080B14';
+    ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='var-grid';
+    ctx.strokeStyle='rgba(94,234,212,0.04)';
+    ctx.lineWidth=1;
+    for(var gx=0;gx<=W;gx+=50){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,H); ctx.stroke(); }
+    for(var gy=0;gy<=H;gy+=50){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
+
+    var world=document.createElement('canvas'); world.width=W; world.height=H;
+    var wctx=world.getContext('2d');
+    st.storms.forEach(function(s){
+      var grad=wctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.r);
+      grad.addColorStop(0,'rgba(154,143,194,0.55)');
+      grad.addColorStop(0.7,'rgba(124,111,181,0.35)');
+      grad.addColorStop(1,'rgba(124,111,181,0)');
+      wctx.fillStyle=grad;
+      wctx.beginPath(); wctx.arc(s.x,s.y,s.r,0,Math.PI*2); wctx.fill();
+    });
+    ctx.drawImage(world,0,0);
+
+    var fog=document.createElement('canvas'); fog.width=W; fog.height=H;
+    var fctx=fog.getContext('2d');
+    fctx.fillStyle='rgba(5,7,13,0.96)';
+    fctx.fillRect(0,0,W,H);
+    fctx.globalCompositeOperation='destination-out';
+    var lr=st.lightRadius;
+    var hole=fctx.createRadialGradient(st.estimate.x,st.estimate.y,0,st.estimate.x,st.estimate.y,lr);
+    hole.addColorStop(0,'rgba(0,0,0,1)');
+    hole.addColorStop(0.75,'rgba(0,0,0,0.85)');
+    hole.addColorStop(1,'rgba(0,0,0,0)');
+    fctx.fillStyle=hole;
+    fctx.beginPath(); fctx.arc(st.estimate.x,st.estimate.y,lr,0,Math.PI*2); fctx.fill();
+    fctx.globalCompositeOperation='source-over';
+    ctx.drawImage(fog,0,0);
+
+    ctx.save();
+    ctx.globalAlpha=0.75;
+    ctx.fillStyle='#F5C36B';
+    ctx.beginPath(); ctx.arc(goalPos.x,goalPos.y, 8+Math.sin(performance.now()/300)*2,0,Math.PI*2); ctx.fill();
+    ctx.font='11px "JetBrains Mono", monospace';
+    ctx.fillText('META', goalPos.x+12, goalPos.y-10);
+    ctx.restore();
+
+    sats.forEach(function(s,i){
+      ctx.fillStyle='#5EEAD4';
+      ctx.beginPath(); ctx.arc(s.x,s.y,5,0,Math.PI*2); ctx.fill();
+      ctx.font='11px "JetBrains Mono", monospace';
+      ctx.fillStyle='#8593B3';
+      ctx.fillText('S'+(i+1), s.x+8, s.y+4);
+    });
+
+    ctx.fillStyle='#5EEAD4';
+    ctx.beginPath(); ctx.arc(st.player.x, st.player.y, 6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(94,234,212,0.5)';
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(st.player.x, st.player.y, 11,0,Math.PI*2); ctx.stroke();
+
+    ctx.fillStyle='rgba(245,195,107,0.7)';
+    ctx.beginPath(); ctx.arc(st.estimate.x, st.estimate.y, 4,0,Math.PI*2); ctx.fill();
+  }
+
+  function endRun(won){
+    st.phase='ended';
+    var frac=Math.max(0, Math.min(1, st.battery/st.batteryMax));
+    var score, grade, title, msg;
+    if(won){
+      score=Math.round(1000*Math.max(0.15,frac));
+      grade=score>=850?'S':score>=650?'A':score>=400?'B':'C';
+      title='Conexión restablecida';
+      msg='Llegaste al punto de extracción con '+Math.max(0,st.battery).toFixed(1)+'s de batería restante.';
+    } else {
+      var d=dist(st.player,goalPos);
+      var maxD=dist(startPos,goalPos);
+      var progress=Math.max(0, 1-d/maxD);
+      score=Math.round(400*progress);
+      grade=score>=300?'C':score>=150?'D':'E';
+      title='Conexión perdida';
+      msg='La batería se agotó antes de llegar a la baliza. Avanzaste un '+Math.round(progress*100)+'% del camino.';
+    }
+    showOverlay(
+      '<h2>'+title+'</h2>'+
+      '<div class="er-result-grade">'+grade+'</div>'+
+      '<p>'+msg+'</p>'+
+      '<p style="font-size:12px;">Puntaje: <b style="color:var(--text)">'+score+'</b></p>'+
+      '<div class="er-choices">'+
+        '<button class="er-btn" id="er-retry">Reintentar</button>'+
+        '<button class="er-btn secondary" id="er-menu">Menú</button>'+
+      '</div>'
+    );
+    document.getElementById('er-retry').addEventListener('click', function(){ beginRun(st.diff); });
+    document.getElementById('er-menu').addEventListener('click', showStart);
+  }
+
+  showStart();
+})();
+</script>
+</body>
+</html>
